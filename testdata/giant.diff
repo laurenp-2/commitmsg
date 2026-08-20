@@ -1,0 +1,36 @@
+diff --git a/web/assets/dashboard.js b/web/assets/dashboard.js
+index 2be5a12..a67143c 100644
+--- a/web/assets/dashboard.js
++++ b/web/assets/dashboard.js
+@@ -1,12 +1,29 @@
+ export function renderDashboard(state) {
+-  return state.items;
++  const visibleItems = state.items
++    .filter((item) => item.visible)
++    .map((item) => ({ ...item, selected: item.id === state.selectedId }));
++  return visibleItems;
+ }
+@@ -42,7 +59,25 @@ export function bindControls(element, dispatch) {
+-  element.addEventListener("click", dispatch);
++  element.addEventListener("click", (event) => {
++    const action = event.target.dataset.action;
++    if (!action) {
++      return;
++    }
++    dispatch({ type: action, source: "dashboard" });
++  });
++
++  element.addEventListener("keydown", (event) => {
++    if (event.key === "Escape") {
++      dispatch({ type: "close-dashboard" });
++    }
++  });
++
++  element.addEventListener("focusin", (event) => {
++    event.target.classList.add("is-focused");
++  });
++
++  element.addEventListener("focusout", (event) => {
++    event.target.classList.remove("is-focused");
++  });
+ }

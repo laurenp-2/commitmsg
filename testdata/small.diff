@@ -1,0 +1,16 @@
+diff --git a/internal/greet/greet.go b/internal/greet/greet.go
+index 2be5a12..a67143c 100644
+--- a/internal/greet/greet.go
++++ b/internal/greet/greet.go
+@@ -1,5 +1,8 @@
+ package greet
+ 
+-func Message(name string) string {
+-	return "hello " + name
++func Message(name string, excited bool) string {
++	message := "hello " + name
++	if excited {
++		return message + "!"
++	}
++	return message
+ }

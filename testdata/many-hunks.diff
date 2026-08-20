@@ -1,0 +1,32 @@
+diff --git a/internal/parser/parser.go b/internal/parser/parser.go
+index 2be5a12..a67143c 100644
+--- a/internal/parser/parser.go
++++ b/internal/parser/parser.go
+@@ -10,6 +10,8 @@ func Parse(input string) (Result, error) {
+ 	if input == "" {
+ 		return Result{}, ErrEmptyInput
+ 	}
++	input = strings.TrimSpace(input)
++
+ 	return parseTokens(strings.Fields(input))
+ }
+@@ -31,6 +33,10 @@ func parseTokens(tokens []string) (Result, error) {
+ 	if len(tokens) < 2 {
+ 		return Result{}, ErrMissingValue
+ 	}
++	if tokens[0] == "#" {
++		return Result{}, ErrCommentOnly
++	}
++
+ 	return Result{Key: tokens[0], Value: tokens[1]}, nil
+ }
+@@ -54,5 +60,8 @@ func validate(result Result) error {
+ 	if result.Key == "" {
+ 		return ErrMissingKey
+ 	}
++	if result.Value == "" {
++		return ErrMissingValue
++	}
++
+ 	return nil
+ }
