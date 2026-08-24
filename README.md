@@ -12,6 +12,22 @@ Local, no-API-key Git commit-message suggestions powered entirely by an Ollama m
 go install github.com/laurenp-2/commitmsg@latest
 ```
 
+## Versioning
+
+`commitmsg version` reads the module version embedded by the Go toolchain. An
+install from a release tag reports that exact tag:
+
+```sh
+go install github.com/laurenp-2/commitmsg@v0.1.0
+commitmsg version # commitmsg v0.1.0
+```
+
+Locally built development binaries preserve Go's build metadata, such as a
+pseudo-version or `v0.1.0+dirty`. When no module version is available, they
+report `devel` along with a short commit revision when Go makes it available.
+To release a new version, create and push the semver tag; there is no source
+version constant to update.
+
 ## Quick start
 
 ```sh

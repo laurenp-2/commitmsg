@@ -13,8 +13,6 @@ import (
 	"time"
 )
 
-const version = "v0.1.0"
-
 var (
 	errNotGitRepository    = errors.New("not a git repository")
 	errNoStagedChanges     = errors.New("no staged changes — stage something with git add")
@@ -63,7 +61,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 				printError(stderr, "version does not accept arguments")
 				return 1
 			}
-			fmt.Fprintf(stdout, "commitmsg %s\n", version)
+			fmt.Fprintf(stdout, "commitmsg %s\n", buildVersion())
 			return 0
 		case "help", "--help", "-h":
 			printUsage(stdout)

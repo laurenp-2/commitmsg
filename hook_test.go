@@ -7,8 +7,10 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -195,6 +197,76 @@ func TestRunHookUsesOneOverallTimeout(t *testing.T) {
 	}
 }
 
+func TestInstalledHookGeneratesCommitMessageAndBypassesDashM(t *testing.T) {
+	repo := setupGitRepository(t)
+	runGitCommand(t, repo, "config", "user.name", "Commitmsg Test")
+	runGitCommand(t, repo, "config", "user.email", "commitmsg-test@example.com")
+	// Keep this test independent of a developer's global core.hooksPath.
+	runGitCommand(t, repo, "config", "core.hooksPath", filepath.Join(repo, ".git", "hooks"))
+
+	var modelChecks, generations atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/tags":
+			modelChecks.Add(1)
+			_, _ = w.Write([]byte(`{"models":[{"name":"test-model"}]}`))
+		case "/api/generate":
+			generations.Add(1)
+			_, _ = w.Write([]byte(`{"response":"feat: generate an installed hook message"}`))
+		default:
+			t.Errorf("unexpected Ollama request: %s %s", r.Method, r.URL.Path)
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	binDir := t.TempDir()
+	binaryPath := filepath.Join(binDir, "commitmsg")
+	buildTestCommitmsgBinary(t, binaryPath)
+	env := testCommandEnvironment(map[string]string{
+		"COMMITMSG_MODEL":   "test-model",
+		"COMMITMSG_TIMEOUT": "5s",
+		"GIT_EDITOR":        "true",
+		"OLLAMA_HOST":       server.URL,
+		"PATH":              binDir + string(os.PathListSeparator) + os.Getenv("PATH"),
+	})
+
+	install := exec.Command(binaryPath, "install")
+	install.Dir = repo
+	install.Env = env
+	if output, err := install.CombinedOutput(); err != nil {
+		t.Fatalf("commitmsg install: %v\n%s", err, output)
+	} else if got, want := strings.TrimSpace(string(output)), "installed prepare-commit-msg hook"; got != want {
+		t.Fatalf("commitmsg install output = %q, want %q", got, want)
+	}
+
+	writeTestFile(t, filepath.Join(repo, "generated.go"), "package generated\n")
+	runGitCommand(t, repo, "add", "generated.go")
+	runGitCommandWithEnvironment(t, repo, env, "commit", "--no-gpg-sign")
+	if got, want := strings.TrimSpace(string(runGitCommandWithEnvironment(t, repo, env, "log", "-1", "--format=%B"))), "feat: generate an installed hook message"; got != want {
+		t.Fatalf("generated commit message = %q, want %q", got, want)
+	}
+	if got, want := modelChecks.Load(), int32(1); got != want {
+		t.Fatalf("model checks after generated commit = %d, want %d", got, want)
+	}
+	if got, want := generations.Load(), int32(1); got != want {
+		t.Fatalf("generations after generated commit = %d, want %d", got, want)
+	}
+
+	writeTestFile(t, filepath.Join(repo, "supplied.go"), "package supplied\n")
+	runGitCommand(t, repo, "add", "supplied.go")
+	runGitCommandWithEnvironment(t, repo, env, "commit", "--no-gpg-sign", "-m", "fix: preserve supplied message")
+	if got, want := strings.TrimSpace(string(runGitCommandWithEnvironment(t, repo, env, "log", "-1", "--format=%B"))), "fix: preserve supplied message"; got != want {
+		t.Fatalf("-m commit message = %q, want %q", got, want)
+	}
+	if got, want := modelChecks.Load(), int32(1); got != want {
+		t.Fatalf("-m commit checked the model %d times, want %d", got, want)
+	}
+	if got, want := generations.Load(), int32(1); got != want {
+		t.Fatalf("-m commit generated %d messages, want %d", got, want)
+	}
+}
+
 func TestHasFirstLineMessageIgnoresGitComments(t *testing.T) {
 	if hasFirstLineMessage("# Git status\n\n# still a comment\n") {
 		t.Fatal("comment-only message file should be eligible for a suggestion")
@@ -202,4 +274,44 @@ func TestHasFirstLineMessageIgnoresGitComments(t *testing.T) {
 	if !hasFirstLineMessage("# a comment\n\nfix: supplied by a template\n") {
 		t.Fatal("an existing non-comment message should be preserved")
 	}
+}
+
+func buildTestCommitmsgBinary(t *testing.T, outputPath string) {
+	t.Helper()
+	sourceDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("get source directory: %v", err)
+	}
+	command := exec.Command("go", "build", "-o", outputPath, ".")
+	command.Dir = sourceDir
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("build commitmsg test binary: %v\n%s", err, output)
+	}
+}
+
+func runGitCommandWithEnvironment(t *testing.T, dir string, env []string, args ...string) []byte {
+	t.Helper()
+	command := exec.Command("git", args...)
+	command.Dir = dir
+	command.Env = env
+	output, err := command.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, output)
+	}
+	return output
+}
+
+func testCommandEnvironment(overrides map[string]string) []string {
+	env := os.Environ()
+	filtered := make([]string, 0, len(env)+len(overrides))
+	for _, entry := range env {
+		key, _, _ := strings.Cut(entry, "=")
+		if _, overridden := overrides[key]; !overridden {
+			filtered = append(filtered, entry)
+		}
+	}
+	for key, value := range overrides {
+		filtered = append(filtered, key+"="+value)
+	}
+	return filtered
 }
